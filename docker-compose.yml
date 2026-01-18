@@ -1,0 +1,70 @@
+# =============================================================================
+# MINIO S3-COMPATIBLE OBJECT STORAGE
+# =============================================================================
+# Multi-tenant S3 storage with per-user credentials and bucket quotas
+# Documentation: https://min.io/docs/
+
+services:
+  minio:
+    image: minio/minio:latest
+    container_name: haex-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      # Enable browser console
+      MINIO_BROWSER: "on"
+      # Server URL for presigned URLs
+      MINIO_SERVER_URL: https://${DOMAIN}
+      MINIO_BROWSER_REDIRECT_URL: https://console.${DOMAIN}
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - proxy
+    labels:
+      # Traefik configuration for S3 API
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-proxy}"
+
+      # S3 API Router (port 9000)
+      - "traefik.http.routers.minio-s3.entrypoints=${TRAEFIK_ENDPOINT_HTTP_NAME:-web}"
+      - "traefik.http.routers.minio-s3.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.minio-s3_secure.entrypoints=${TRAEFIK_ENDPOINT_HTTPS_NAME:-web_secure}"
+      - "traefik.http.routers.minio-s3_secure.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.minio-s3_secure.tls=true"
+      - "traefik.http.routers.minio-s3_secure.tls.certresolver=${TRAEFIK_LETS_ENCRYPT_RESOLVER:-http_resolver}"
+      - "traefik.http.routers.minio-s3_secure.service=minio-s3"
+      - "traefik.http.services.minio-s3.loadbalancer.server.port=9000"
+
+      # Console Router (port 9001)
+      - "traefik.http.routers.minio-console.entrypoints=${TRAEFIK_ENDPOINT_HTTP_NAME:-web}"
+      - "traefik.http.routers.minio-console.rule=Host(`console.${DOMAIN}`)"
+      - "traefik.http.routers.minio-console_secure.entrypoints=${TRAEFIK_ENDPOINT_HTTPS_NAME:-web_secure}"
+      - "traefik.http.routers.minio-console_secure.rule=Host(`console.${DOMAIN}`)"
+      - "traefik.http.routers.minio-console_secure.tls=true"
+      - "traefik.http.routers.minio-console_secure.tls.certresolver=${TRAEFIK_LETS_ENCRYPT_RESOLVER:-http_resolver}"
+      - "traefik.http.routers.minio-console_secure.service=minio-console"
+      - "traefik.http.services.minio-console.loadbalancer.server.port=9001"
+
+      # Watchtower
+      - "com.centurylinklabs.watchtower.enable=true"
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+volumes:
+  minio-data:
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+networks:
+  proxy:
+    name: ${TRAEFIK_NETWORK:-proxy}
+    external: true
